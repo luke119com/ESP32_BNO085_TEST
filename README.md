@@ -14,17 +14,28 @@
 | **WiFi 設定頁** | 掃描、選擇、輸入密碼後儲存並自動連線 |
 | **AP fallback** | 連不到 AP 時自動開啟 `BNO085-Setup` 熱點 + Captive Portal 直連 |
 
-## 硬體接線 (I2C)
+## 硬體接線 (SPI)
 
-| BNO085 | ESP32 |
-|--------|-------|
-| VIN | 3V3 |
-| GND | GND |
-| SDA | GPIO21 |
-| SCL | GPIO22 |
+| BNO085 | ESP32 | 說明 |
+|--------|-------|------|
+| VIN | 3V3 | 電源 |
+| GND | GND | 接地 |
+| SCK | GPIO18 | SPI 時脈 |
+| MISO / SDA / DO | GPIO19 | SPI 主收 |
+| MOSI / DI | GPIO23 | SPI 主送 |
+| CS | GPIO5 | 晶片選擇(函式庫自動控制) |
+| INT | GPIO4 | HINTN 資料就緒(低態有效,**必接**) |
+| RST | GPIO16 | NRST 硬體重置 |
+| P0 / PS0 | GPIO17 | 協定選擇(SPI 需拉高) |
+| P1 / PS1 | GPIO25 | 協定選擇(SPI 需拉高) |
 
-> 若模組有 PS0/PS1,兩腳都接 GND 以選擇 I2C 模式;預設 I2C 位址 `0x4A`。
+> **協定選擇**:`PS1=HIGH 且 PS0=HIGH` 才會在 reset 當下鎖定為 SPI 模式。
+> 韌體會在 `begin_SPI` 前先把 PS0/PS1 拉高並保持。
+> 函式庫固定使用 **SPI_MODE3 @ 1MHz**,以 INT 中斷驅動流控(不需輪詢空轉)。
 > 接腳可在 [src/main.cpp](src/main.cpp) 最上方修改。
+
+> 💡 若你的 Adafruit 模組出廠預設走 I2C(P0/P1 內建下拉),把 P0、P1 接到本表 GPIO 由韌體拉高即可切換;
+> 不需要動模組上的焊接跳線。
 
 ## 建置與燒錄
 

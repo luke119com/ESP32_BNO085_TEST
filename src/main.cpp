@@ -9,16 +9,25 @@
  *   - 網頁 OTA 韌體更新
  *   - WiFi 設定頁面,連不到 AP 時自動切換為 AP 直連 + Captive Portal
  *
- * 硬體接線 (I2C):
- *   BNO085 VIN -> 3V3
- *   BNO085 GND -> GND
- *   BNO085 SDA -> GPIO21
- *   BNO085 SCL -> GPIO22
- *   (若模組有 PS0/PS1,兩者接 GND 選擇 I2C 模式;位址預設 0x4A)
+ * 硬體接線 (SPI):
+ *   BNO085 VIN  -> 3V3
+ *   BNO085 GND  -> GND
+ *   BNO085 SCK  -> GPIO18  (SPI CLK)
+ *   BNO085 MISO/SDA/DO -> GPIO19  (SPI MISO)
+ *   BNO085 MOSI/DI      -> GPIO23  (SPI MOSI)
+ *   BNO085 CS   -> GPIO5   (晶片選擇,函式庫自動控制)
+ *   BNO085 INT  -> GPIO4   (HINTN,資料就緒中斷,低態有效,必接)
+ *   BNO085 RST  -> GPIO16  (NRST,硬體重置)
+ *   BNO085 P0/PS0 -> GPIO17  (協定選擇,SPI 需拉高)
+ *   BNO085 P1/PS1 -> GPIO25  (協定選擇,SPI 需拉高)
+ *
+ *   ※ PS1=HIGH 且 PS0=HIGH 才會在 reset 當下鎖定 SPI 模式,
+ *     由 ESP32 於 begin_SPI 前先拉高並保持。
+ *   ※ 函式庫固定使用 SPI_MODE3 @ 1MHz。
  */
 
 #include <Arduino.h>
-#include <Wire.h>
+#include <SPI.h>
 #include <WiFi.h>
 #include <DNSServer.h>
 #include <Preferences.h>
@@ -28,12 +37,15 @@
 #include <ArduinoJson.h>
 #include <Adafruit_BNO08x.h>
 
-// ---------- 接腳設定 ----------
-#define PIN_SDA   21
-#define PIN_SCL   22
-#define PIN_INT   -1   // 未使用中斷腳可設 -1
-#define PIN_RST   -1   // 未接 reset 腳可設 -1
-#define BNO_ADDR  0x4A
+// ---------- 接腳設定 (SPI) ----------
+#define PIN_SCK   18   // SPI CLK
+#define PIN_MISO  19   // SPI MISO (BNO085 的 SDA/DO)
+#define PIN_MOSI  23   // SPI MOSI (BNO085 的 DI)
+#define PIN_CS     5   // 晶片選擇
+#define PIN_INT    4   // HINTN 資料就緒(低態有效,必接)
+#define PIN_RST   16   // NRST 硬體重置
+#define PIN_PS0   17   // 協定選擇 P0(SPI 需拉高)
+#define PIN_PS1   25   // 協定選擇 P1(SPI 需拉高)
 
 // ---------- AP 直連模式參數 ----------
 static const char *AP_SSID     = "BNO085-Setup";
@@ -110,13 +122,20 @@ void setBnoReports() {
 }
 
 bool initBNO() {
-  Wire.begin(PIN_SDA, PIN_SCL);
-  Wire.setClock(400000);   // 400kHz 快速模式
-  if (!bno.begin_I2C(BNO_ADDR, &Wire, 0)) {
-    Serial.println("[BNO] 找不到 BNO085,請檢查接線/位址");
+  // 先拉高 PS0/PS1 以在 reset 當下鎖定 SPI 模式
+  pinMode(PIN_PS0, OUTPUT); digitalWrite(PIN_PS0, HIGH);
+  pinMode(PIN_PS1, OUTPUT); digitalWrite(PIN_PS1, HIGH);
+  delay(10);
+
+  // 自訂 VSPI 腳位
+  SPI.begin(PIN_SCK, PIN_MISO, PIN_MOSI, PIN_CS);
+
+  // begin_SPI 內部會透過建構子的 RST 腳做硬體重置並鎖定協定
+  if (!bno.begin_SPI(PIN_CS, PIN_INT, &SPI)) {
+    Serial.println("[BNO] 找不到 BNO085 (SPI),請檢查接線 / PS0-PS1 是否拉高");
     return false;
   }
-  Serial.println("[BNO] BNO085 已就緒");
+  Serial.println("[BNO] BNO085 已就緒 (SPI @ 1MHz, MODE3)");
   setBnoReports();
   return true;
 }
@@ -128,8 +147,10 @@ void pollBNO() {
     setBnoReports();
   }
 
-  // 一次盡量讀完佇列(避免 I2C 累積延遲)
+  // 一次盡量讀完佇列。SPI HAL 在無資料時會空等最多 500ms,
+  // 因此先用 INT(低態=資料就緒)把關,沒資料就直接離開。
   for (int i = 0; i < 40; i++) {
+    if (digitalRead(PIN_INT) == HIGH) break;   // INT 未拉低 -> 無資料
     if (!bno.getSensorEvent(&sensorValue)) break;
 
     switch (sensorValue.sensorId) {
