@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>BNO085 Demo</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>ESP32 · BNO085</h1>
+    <div class="conn">
+      <span id="dot" class="dot off"></span>
+      <span id="connText">連線中…</span>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="dash">姿態</button>
+    <button class="tab" data-tab="sensors">感測器</button>
+    <button class="tab" data-tab="events">事件</button>
+    <button class="tab" data-tab="wifi">WiFi</button>
+    <button class="tab" data-tab="ota">韌體</button>
+  </nav>
+
+  <!-- ============ 姿態 ============ -->
+  <section id="dash" class="page active">
+    <div class="grid2">
+      <div class="card">
+        <h2>3D 姿態</h2>
+        <div class="scene">
+          <div id="cube" class="cube">
+            <div class="face front">前 X</div>
+            <div class="face back">後</div>
+            <div class="face right">右 Y</div>
+            <div class="face left">左</div>
+            <div class="face top">上 Z</div>
+            <div class="face bottom">下</div>
+          </div>
+        </div>
+        <div class="euler">
+          <span>Roll <b id="roll">0°</b></span>
+          <span>Pitch <b id="pitch">0°</b></span>
+          <span>Yaw <b id="yaw">0°</b></span>
+        </div>
+        <button id="btnReset" class="mini">歸零視角</button>
+      </div>
+
+      <div class="card">
+        <h2>指南針</h2>
+        <canvas id="compass" width="260" height="260"></canvas>
+        <div class="heading"><b id="heading">0°</b> <span id="headingDir">N</span></div>
+        <div class="calrow">
+          磁力校正
+          <span class="cal" id="calMag">0</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>更新率</h2>
+      <div class="rate"><b id="hz">0</b> Hz &nbsp;·&nbsp; 封包 <b id="pkts">0</b></div>
+    </div>
+  </section>
+
+  <!-- ============ 感測器 ============ -->
+  <section id="sensors" class="page">
+    <div class="card">
+      <h2>加速度 (m/s²) <span class="cal" id="calAcc">0</span></h2>
+      <div class="vec"><span>X<b id="accX">0</b></span><span>Y<b id="accY">0</b></span><span>Z<b id="accZ">0</b></span></div>
+    </div>
+    <div class="card">
+      <h2>陀螺儀 (rad/s) <span class="cal" id="calGyr">0</span></h2>
+      <div class="vec"><span>X<b id="gyrX">0</b></span><span>Y<b id="gyrY">0</b></span><span>Z<b id="gyrZ">0</b></span></div>
+    </div>
+    <div class="card">
+      <h2>磁力計 (µT) <span class="cal" id="calMag2">0</span></h2>
+      <div class="vec"><span>X<b id="magX">0</b></span><span>Y<b id="magY">0</b></span><span>Z<b id="magZ">0</b></span></div>
+    </div>
+    <div class="card">
+      <h2>線性加速度 (m/s²)</h2>
+      <div class="vec"><span>X<b id="linX">0</b></span><span>Y<b id="linY">0</b></span><span>Z<b id="linZ">0</b></span></div>
+    </div>
+    <div class="card">
+      <h2>重力向量 (m/s²)</h2>
+      <div class="vec"><span>X<b id="gravX">0</b></span><span>Y<b id="gravY">0</b></span><span>Z<b id="gravZ">0</b></span></div>
+    </div>
+    <div class="card">
+      <h2>四元數 (Rotation Vector)</h2>
+      <div class="vec4"><span>i<b id="qi">0</b></span><span>j<b id="qj">0</b></span><span>k<b id="qk">0</b></span><span>r<b id="qr">1</b></span></div>
+      <div class="calrow">準確度 <b id="rotAcc">0</b>°</div>
+    </div>
+  </section>
+
+  <!-- ============ 事件 ============ -->
+  <section id="events" class="page">
+    <div class="grid2">
+      <div class="card big"><h2>計步</h2><div class="huge" id="steps">0</div></div>
+      <div class="card big"><h2>穩定度</h2><div class="huge" id="stab">-</div></div>
+      <div class="card big"><h2>敲擊</h2><div class="huge" id="tap">0</div><div class="sub" id="tapAgo"></div></div>
+      <div class="card big"><h2>搖晃</h2><div class="huge" id="shake">0</div><div class="sub" id="shakeAgo"></div></div>
+    </div>
+    <div class="card">
+      <p class="tip">提示:BNO085 校正 — 讓裝置靜置、繞 8 字揮動可提升磁力/陀螺校正等級(0→3 越高越準)。</p>
+    </div>
+  </section>
+
+  <!-- ============ WiFi ============ -->
+  <section id="wifi" class="page">
+    <div class="card">
+      <h2>目前連線</h2>
+      <table class="info">
+        <tr><td>模式</td><td id="iMode">-</td></tr>
+        <tr><td>SSID</td><td id="iSsid">-</td></tr>
+        <tr><td>IP</td><td id="iIp">-</td></tr>
+        <tr><td>訊號</td><td id="iRssi">-</td></tr>
+        <tr><td>MAC</td><td id="iMac">-</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h2>設定 WiFi</h2>
+      <button id="btnScan" class="mini">掃描網路</button>
+      <ul id="apList" class="aplist"></ul>
+      <form id="wifiForm">
+        <label>SSID<input name="ssid" id="ssidInput" autocomplete="off" required></label>
+        <label>密碼<input name="pass" id="passInput" type="password" autocomplete="off"></label>
+        <button type="submit" class="primary">儲存並連線</button>
+      </form>
+      <p id="wifiMsg" class="msg"></p>
+    </div>
+  </section>
+
+  <!-- ============ 韌體 OTA ============ -->
+  <section id="ota" class="page">
+    <div class="card">
+      <h2>韌體更新 (OTA)</h2>
+      <p class="tip">選擇 PlatformIO 產生的 <code>firmware.bin</code>(位於 <code>.pio/build/esp32dev/</code>)。</p>
+      <input type="file" id="fwFile" accept=".bin">
+      <button id="btnUpload" class="primary">上傳並更新</button>
+      <div class="progress"><div id="bar"></div></div>
+      <p id="otaMsg" class="msg"></p>
+    </div>
+    <div class="card">
+      <h2>系統</h2>
+      <table class="info">
+        <tr><td>晶片</td><td id="iChip">-</td></tr>
+        <tr><td>可用記憶體</td><td id="iHeap">-</td></tr>
+        <tr><td>運行時間</td><td id="iUp">-</td></tr>
+      </table>
+      <button id="btnReboot" class="mini danger">重新開機</button>
+    </div>
+  </section>
+
+  <script src="/app.js"></script>
+</body>
+</html>
