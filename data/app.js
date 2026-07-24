@@ -167,6 +167,24 @@ setInterval(() => {
   hzFrames = 0; lastHzTime = now;
 }, 1000);
 
+// ---------------- 擷取率調整 ----------------
+const rateSlider = $('rateSlider'), rateVal = $('rateVal');
+rateSlider.oninput = () => {
+  rateVal.textContent = rateSlider.value;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ rateHz: +rateSlider.value }));
+  }
+};
+// 韌體回報目前設定時,同步滑桿範圍與數值
+function applyCfg(cfg) {
+  if (cfg.min != null) rateSlider.min = cfg.min;
+  if (cfg.max != null) rateSlider.max = cfg.max;
+  if (cfg.rateHz != null) {
+    rateSlider.value = Math.round(cfg.rateHz);
+    rateVal.textContent = Math.round(cfg.rateHz);
+  }
+}
+
 // ---------------- WebSocket ----------------
 let ws;
 function connectWS() {
@@ -176,7 +194,13 @@ function connectWS() {
     $('dot').className = 'dot off'; $('connText').textContent = '斷線,重連中…';
     setTimeout(connectWS, 1500);
   };
-  ws.onmessage = ev => { try { onData(JSON.parse(ev.data)); } catch (e) {} };
+  ws.onmessage = ev => {
+    try {
+      const d = JSON.parse(ev.data);
+      if (d.cfg) { applyCfg(d.cfg); return; }   // 設定封包
+      onData(d);                                 // 感測資料封包
+    } catch (e) {}
+  };
 }
 connectWS();
 

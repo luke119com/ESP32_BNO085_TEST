@@ -63,7 +63,9 @@ DNSServer dnsServer;
 
 bool apMode = false;              // 目前是否為 AP 直連模式
 uint32_t lastWsPush = 0;          // 上次推送時間
-const uint32_t WS_PUSH_MS = 20;   // 推送間隔(ms)-> 約 50Hz
+uint32_t wsPushMs = 10;           // 推送間隔(ms),可由網頁調整,預設 100Hz
+const uint32_t WS_PUSH_MIN_MS = 10;   // 最快 100Hz(對齊感測器姿態上限)
+const uint32_t WS_PUSH_MAX_MS = 200;  // 最慢 5Hz
 
 // ---------- 感測器最新數值快取 ----------
 struct SensorData {
@@ -310,12 +312,43 @@ void setupWiFi() {
 // ================================================================
 //  WebSocket 事件
 // ================================================================
+// 依 Hz 設定推送間隔(夾在 5~100Hz 內)
+void applyRate(float hz) {
+  if (hz < 1) hz = 1;
+  uint32_t ms = (uint32_t)(1000.0f / hz + 0.5f);
+  if (ms < WS_PUSH_MIN_MS) ms = WS_PUSH_MIN_MS;
+  if (ms > WS_PUSH_MAX_MS) ms = WS_PUSH_MAX_MS;
+  wsPushMs = ms;
+  Serial.printf("[WS] 推送率設為 %.0f Hz (%lu ms)\n", 1000.0f / ms, (unsigned long)ms);
+}
+
+// 送出目前設定給單一用戶端,讓網頁滑桿同步(min=最慢,max=最快)
+void sendConfig(AsyncWebSocketClient *client) {
+  char cfg[96];
+  int n = snprintf(cfg, sizeof(cfg),
+    "{\"cfg\":{\"rateHz\":%.0f,\"min\":%.0f,\"max\":%.0f}}",
+    1000.0f / wsPushMs, 1000.0f / WS_PUSH_MAX_MS, 1000.0f / WS_PUSH_MIN_MS);
+  if (n > 0) client->text(cfg, n);
+}
+
 void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
                AwsEventType type, void *arg, uint8_t *payload, size_t len) {
   if (type == WS_EVT_CONNECT) {
     Serial.printf("[WS] 用戶端 #%u 連線\n", client->id());
+    sendConfig(client);
   } else if (type == WS_EVT_DISCONNECT) {
     Serial.printf("[WS] 用戶端 #%u 離線\n", client->id());
+  } else if (type == WS_EVT_DATA) {
+    // 只處理單一封包、完整、文字型訊息(控制指令都很短)
+    AwsFrameInfo *info = (AwsFrameInfo *)arg;
+    if (info->final && info->index == 0 && info->len == len &&
+        info->opcode == WS_TEXT && len < 128) {
+      JsonDocument doc;
+      if (deserializeJson(doc, payload, len) == DeserializationError::Ok &&
+          !doc["rateHz"].isNull()) {
+        applyRate(doc["rateHz"].as<float>());
+      }
+    }
   }
 }
 
@@ -473,7 +506,7 @@ void loop() {
   pollBNO();
 
   uint32_t now = millis();
-  if (now - lastWsPush >= WS_PUSH_MS) {
+  if (now - lastWsPush >= wsPushMs) {
     lastWsPush = now;
     pushSensorData();
     ws.cleanupClients();
